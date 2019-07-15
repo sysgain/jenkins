@@ -1,0 +1,303 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "adminUserName": {
+            "type": "string",
+            "metadata": {
+                "description": "User name for the Virtual Machine"
+            }
+        },
+        "adminPassword": {
+            "defaultValue": "",
+            "type": "securestring",
+            "metadata": {
+                "description": "Password for the Virtual Machine"
+            }
+        },
+        "dnsPrefix": {
+            "type": "string",
+            "metadata": {
+                "description": "Unique DNS Name for the Public IP used to access the Jenkins Virtual Machine."
+            }
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "westus",
+            "allowedValues": [
+                "Brazil South",
+                "brazilsouth",
+                "East Asia",
+                "eastasia",
+                "East US",
+                "eastus",
+                "Japan East",
+                "japaneast",
+                "Japan West",
+                "japanwest",
+                "North Central US",
+                "northcentralus",
+                "North Europe",
+                "northeurope",
+                "South Central US",
+                "southcentralus",
+                "West Europe",
+                "westeurope",
+                "West US",
+                "westus",
+                "Southeast Asia",
+                "southeastasia",
+                "Central US",
+                "centralus",
+                "East US 2",
+                "eastus2"
+            ],
+            "metadata": {
+                "description": "Location to deploy resources"
+            }
+        }
+    },
+    "variables": {
+        "baseUrl": "https://raw.githubusercontent.com/sysgain/jenkins/master/",
+        "extensionScript": "install_jenkins.sh",
+        "publicIPName":"jenkins-pip",
+        "vmName":"jenkins",
+        "vmSize":"Standard_B2s",
+        "storageAccountType": "Standard_LRS",
+        "storageAccountName": "[concat('jenkinstrg',variables('suffix'))]",
+        "vnetName": "jenkins-vnet",
+        "vnetAddressPrefix": "172.16.0.0/16",
+        "subnetName": "jenkins",
+        "subnetAddressPrefix":"172.16.0.0/24",
+        "frontEndNSGName": "[concat(variables('vmName'), '-nsg')]",
+        "nicName": "[concat(variables('vmName'), '-nic')]",
+        "publicIPDeploymentName": "[concat(variables('vmName'), '-pip-deploy')]",
+        "templateUrlIP": "[concat(variables('baseUrl'),'nested/publicIP.json')]",
+        "templateUrlVnet": "[concat(variables('baseUrl'),'nested/vnet.json')]",
+        "templateUrlVM": "[concat(variables('baseUrl'),'nested/VM-password.json')]",
+        "ubuntuSku": "16.04-LTS",
+        "vmDeploymentName": "[concat(variables('vmName'), '-vm-deploy')]",
+        "vnetDeployName": "[concat(variables('vmName'), '-vnet-deploy')]",
+        "suffix": "[substring(uniqueString(resourceGroup().id), 0, 5)]"
+    },
+    "resources": [
+
+        {
+            "apiVersion": "2016-09-01",
+            "dependsOn": [],
+            "name": "[variables('publicIPDeploymentName')]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "publicIPName": {
+                        "value": "[variables('publicIPName')]"
+                    },
+                    "publicIPLocation": {
+                        "value": "[parameters('location')]"
+                    },
+                    "dnsPrefix": {
+                        "value": "[parameters('dnsPrefix')]"
+                    }
+                },
+                "templateLink": {
+                    "contentVersion": "1.0.0.0",
+                    "uri": "[variables('templateUrlIP')]"
+                }
+            },
+            "type": "Microsoft.Resources/deployments"
+        },
+        {
+            "apiVersion": "2016-09-01",
+            "dependsOn": [],
+            "name": "[variables('vnetDeployName')]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "location": {
+                        "value": "[parameters('location')]"
+                    },
+                    "vnetName": {
+                        "value": "[variables('vnetName')]"
+                    },
+                    "vnetAddressPrefix": {
+                        "value": "[variables('vnetAddressPrefix')]"
+                    },
+                    "subnetName": {
+                        "value": "[variables('subnetName')]"
+                    },
+                    "subnetAddressPrefix": {
+                        "value": "[variables('subnetAddressPrefix')]"
+                    }
+                },
+                "templateLink": {
+                    "contentVersion": "1.0.0.0",
+                    "uri": "[variables('templateUrlVnet')]"
+                }
+            },
+            "type": "Microsoft.Resources/deployments"
+        },
+        {
+            "apiVersion": "2015-06-15",
+            "location": "[parameters('location')]",
+            "name": "[variables('frontEndNSGName')]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "ssh-rule",
+                        "properties": {
+                            "access": "Allow",
+                            "description": "Allow SSH",
+                            "destinationAddressPrefix": "*",
+                            "destinationPortRange": "22",
+                            "direction": "Inbound",
+                            "priority": 100,
+                            "protocol": "Tcp",
+                            "sourceAddressPrefix": "Internet",
+                            "sourcePortRange": "*"
+                        }
+                    },
+                    {
+                        "name": "http-rule",
+                        "properties": {
+                            "access": "Allow",
+                            "description": "Allow HTTP",
+                            "destinationAddressPrefix": "*",
+                            "destinationPortRange": "80",
+                            "direction": "Inbound",
+                            "priority": 101,
+                            "protocol": "Tcp",
+                            "sourceAddressPrefix": "Internet",
+                            "sourcePortRange": "*"
+                        }
+                    },
+                    {
+                        "name": "jnlp-rule",
+                        "properties": {
+                            "access": "Allow",
+                            "description": "Allow JNLP",
+                            "destinationAddressPrefix": "*",
+                            "destinationPortRange": "8080",
+                            "direction": "Inbound",
+                            "priority": 110,
+                            "protocol": "Tcp",
+                            "sourceAddressPrefix": "Internet",
+                            "sourcePortRange": "*"
+                        }
+                    }
+                ]
+            },
+            "tags": {
+                "displayName": "NSG - Front End"
+            },
+            "type": "Microsoft.Network/networkSecurityGroups"
+        },
+        {
+            "apiVersion": "2016-03-30",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', variables('frontEndNSGName'))]",
+                "[resourceId('Microsoft.Resources/deployments', variables('vnetDeployName'))]",
+                "[resourceId('Microsoft.Resources/deployments', variables('publicIPDeploymentName'))]"
+            ],
+            "location": "[parameters('location')]",
+            "name": "[variables('nicName')]",
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPName'))]"
+                            },
+                            "subnet": {
+                                "id": "[concat(resourceId('Microsoft.Network/virtualNetworks', variables('vnetName')),'/subnets/',variables('subnetName'))]"
+                            }
+                        }
+                    }
+                ],
+                "networkSecurityGroup": {
+                    "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('frontEndNSGName'))]"
+                }
+            },
+            "tags": {
+                "displayName": "[variables('nicName')]"
+            },
+            "type": "Microsoft.Network/networkInterfaces"
+        },
+        {
+            "apiVersion": "2016-09-01",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]",
+                "[resourceId('Microsoft.Resources/deployments', variables('publicIPDeploymentName'))]"
+            ],
+            "name": "[variables('vmDeploymentName')]",
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {
+                    "adminPassword": {
+                        "value": "[parameters('adminPassword')]"
+                    },
+                    "adminUserName": {
+                        "value": "[parameters('adminUserName')]"
+                    },
+                    "networkInterfaceId": {
+                        "value": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"
+                    },
+                    "storageAccountType": {
+                        "value": "[variables('storageAccountType')]"
+                    },
+                    "ubuntuSku": {
+                        "value": "[variables('ubuntuSku')]"
+                    },
+                    "vmLocation": {
+                        "value": "[parameters('location')]"
+                    },
+                    "vmName": {
+                        "value": "[variables('vmName')]"
+                    },
+                    "vmSize": {
+                        "value": "[variables('vmSize')]"
+                    }
+                },
+                "templateLink": {
+                    "contentVersion": "1.0.0.0",
+                    "uri": "[variables('templateUrlVM')]"
+                }
+            },
+            "type": "Microsoft.Resources/deployments"
+        },
+        {
+            "apiVersion": "2015-06-15",
+            "dependsOn": [
+                "[resourceId('Microsoft.Resources/deployments', variables('vmDeploymentName'))]"
+            ],
+            "location": "[parameters('location')]",
+            "name": "[concat(variables('vmName'), '/Init')]",
+            "properties": {
+                "autoUpgradeMinorVersion": true,
+                "publisher": "Microsoft.Azure.Extensions",
+                "protectedSettings": {
+                    "commandToExecute": "sh install_jenkins.sh"
+                  },
+                "settings": {
+                    "fileUris": [
+                        "[concat(variables('baseUrl'),'scripts/', variables('extensionScript'))]"
+                    ]
+                },
+                "type": "CustomScript",
+                "typeHandlerVersion": "2.0"
+            },
+            "type": "Microsoft.Compute/virtualMachines/extensions"
+        }
+    ],
+    "outputs": {
+        "jenkinsURL": {
+            "type": "string",
+            "value": "[concat('http://', reference(variables('publicIPDeploymentName')).outputs.fqdn.value)]"
+        },
+        "ssh": {
+            "type": "string",
+            "value": "[concat('ssh -L 8080:localhost:8080 ', parameters('adminUsername'), '@', reference(variables('publicIPDeploymentName')).outputs.fqdn.value)]"
+        }
+    }
+}
